@@ -4,9 +4,12 @@
  * and open the template in the editor.
  */
 package retriever;
+import evaluator.Evaluator;
+import indexing.TrecDocIndexer;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -66,13 +69,17 @@ public class TrecDocRetriever {
     IndexSearcher searcher;    
     Analyzer analyzer;
     Properties prop;
-    HashMap<String, List<TRECQuery>> trecQriesMap;
     File workDirF;
     int numDocsInCollection;
+    String runName;
+    int numWanted;
+    int trecCode;
     
     static final int NUMDOCS_TO_REPORT_FOR_CUSTOM_SIM = 20;
     static final public String FIELD_ID = "id";
     static final public String FIELD_ANALYZED_CONTENT = "words";  // Standard analyzer w/o stopwords.    
+    
+    public int getTrecCode() { return trecCode; }
     
     protected List<String> buildStopwordList(String stopwordFileName) {
         List<String> stopwords = new ArrayList<>();
@@ -113,25 +120,22 @@ public class TrecDocRetriever {
             StopFilter.makeStopSet(
                 Version.LUCENE_4_9, buildStopwordList("stopfile"))); // default analyzer
         
-        trecQriesMap = new HashMap<>();
-        
         numDocsInCollection = reader.numDocs();
+        runName = prop.getProperty("retrieve.runname", "noname");
+        numWanted = Integer.parseInt(prop.getProperty("retrieve.num_wanted", "1000"));
+        trecCode = Integer.parseInt(prop.getProperty("trec.code", "6"));
     }
 
     public List<TRECQuery> constructQueries(int trecCode) throws Exception {
         String key = "trec." + trecCode;
-        List<TRECQuery> queries = trecQriesMap.get(key);
-        if (queries != null)
-            return queries;
+        List<TRECQuery> queries;
         
-        String queryFilePropName = key + ".query.file";
+        String queryFilePropName = key + ".query.file";  // trec.6.query.file
         String queryFile = prop.getProperty(queryFilePropName);
         TRECQueryParser parser = new TRECQueryParser(queryFile, analyzer);
         parser.parse();
         queries = parser.getQueries();
         
-        // cache for later use from in-memory
-        trecQriesMap.put(key, queries);
         return queries;
     }    
 
@@ -151,19 +155,25 @@ public class TrecDocRetriever {
     }
     
     // trecCode is either 6, 7 or 8
-    public String batchRetrieveTREC(int trecCode, String retFunc, float k, float b) throws Exception {
-        setSimilarity(retFunc, k, b);
-        String runName = retFunc + "." + k + "." + b;
-        StringBuffer trecBatchRes = new StringBuffer();
+    public void batchRetrieveTREC(int trecCode) throws Exception {
         List<TRECQuery> queries = constructQueries(trecCode);
+        String resultsFile = prop.getProperty("res." + trecCode + ".file");        
+        FileWriter fw = new FileWriter(resultsFile);
         
         for (TRECQuery query : queries) {
             TopScoreDocCollector collector = TopScoreDocCollector.create(1000, true);
             Query luceneQuery = buildQuery(query.title);
             searcher.search(luceneQuery, collector);
-            trecBatchRes.append(getTuples(query, collector.topDocs(), runName));
+            
+            saveRetrievedTuples(fw, query, collector.topDocs());
         }        
-        return trecBatchRes.toString();
+        
+        fw.close();        
+        reader.close();
+        
+        if (Boolean.parseBoolean(prop.getProperty("eval"))) {
+            evaluate();
+        }
     }
     
     private TopDocs randomize(TopDocs topDocs) {
@@ -196,25 +206,6 @@ public class TrecDocRetriever {
         return rerankedDocs;
     }
 
-    void setSimilarity(String retFunc, float k, float b) {
-        // Create sim object
-        Similarity sim = new DefaultSimilarity();
-        if (retFunc.equals("BM25"))
-            sim = new BM25Similarity(k, b);
-        
-        searcher.setSimilarity(sim);        
-    }
-    
-    public void retrieve(String query, String retFunc, int nwanted, float k, float b) throws Exception {
-        setSimilarity(retFunc, k, b);
-        
-        TopScoreDocCollector collector;
-        collector = TopScoreDocCollector.create(nwanted, true);
-                
-        Query luceneQuery = buildQuery(query);
-        searcher.search(luceneQuery, collector);        
-    }
-    
     String analyze(String query) throws Exception {
         StringBuffer buff = new StringBuffer();
         TokenStream stream = analyzer.tokenStream("dummy", new StringReader(query));
@@ -289,5 +280,42 @@ public class TrecDocRetriever {
         }
         
         return buff.toString();
+    }        
+    
+    public void saveRetrievedTuples(FileWriter fw, TRECQuery query, TopDocs topDocs) throws Exception {
+        StringBuffer buff = new StringBuffer();
+        ScoreDoc[] hits = topDocs.scoreDocs;
+        int len = Math.min(numWanted, hits.length);
+        for (int i = 0; i < len; ++i) {
+            int docId = hits[i].doc;
+            Document d = searcher.doc(docId);
+            buff.append(query.id.trim()).append("\tQ0\t").
+                    append(d.get(TrecDocIndexer.FIELD_ID)).append("\t").
+                    append((i+1)).append("\t").
+                    append(hits[i].score).append("\t").
+                    append(runName).append("\n");                
+        }
+        fw.write(buff.toString());        
+    }
+    
+    public void evaluate() throws Exception {
+        Evaluator evaluator = new Evaluator(this.prop);
+        evaluator.load();
+        evaluator.fillRelInfo();
+        System.out.println(evaluator.computeAll());        
+    }
+    
+    public static void main(String[] args) {
+        if (args.length < 1) {
+            args = new String[1];
+            args[0] = "init.properties";
+        }
+        try {
+            TrecDocRetriever searcher = new TrecDocRetriever(args[0]);
+            searcher.batchRetrieveTREC(searcher.getTrecCode());
+        }
+        catch (Exception ex) {
+            ex.printStackTrace();
+        }
     }        
 }
