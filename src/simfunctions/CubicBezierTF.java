@@ -21,6 +21,12 @@ class TwoDPoint {
         this.y = y;
     }
     
+    public String toString() {
+        StringBuffer buff = new StringBuffer();
+        buff.append("(").append(x).append(", ").append(y).append(")");
+        return buff.toString();
+    }
+    
     static TwoDPoint scalarProduct(float a, TwoDPoint p) {
         TwoDPoint scaledPoint = new TwoDPoint(a*p.x, a*p.y);
         return scaledPoint;
@@ -109,6 +115,20 @@ public class CubicBezierTF {
             }
         }
         return mid.y;
+    }
+    
+    @Override
+    public String toString() {
+        StringBuffer buff = new StringBuffer();
+        buff
+            .append("[")
+            .append(this.a)
+            .append(" ")
+            .append(this.b)
+            .append(" ")
+            .append(this.end.y)
+            .append("]");
+        return buff.toString();
     }
     
     public static void main(String[] args) {

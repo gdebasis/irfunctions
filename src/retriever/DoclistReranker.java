@@ -27,6 +27,7 @@ import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.util.BytesRef;
 import static retriever.TrecDocRetriever.FIELD_ANALYZED_CONTENT;
+import simfunctions.CubicBezierTF;
 
 /**
  *
@@ -63,7 +64,8 @@ class DocVector {
             this.vec[i] = new TermWt(that.vec[i]);
         }
     }
-    
+
+    // Forming the query term vector
     DocVector(IndexReader reader, Query q) {
         this.reader = reader;
         
@@ -125,22 +127,24 @@ class DocVector {
         return sim;
     }
 
-    float[] getTfs() {
+    float[] defineTF(CubicBezierTF tfFunc) {
         float[] tfwts = new float[this.vec.length];
         for (int i = 0; i < tfwts.length; i++) {
-            tfwts[i] = this.vec[i].wt;
+            // make sure from the call sequence that these tf values are normalized... 
+            tfwts[i] = tfFunc.getTFScore(this.vec[i].wt);
         }
         return tfwts;
     }
     
-    float[] getIdfs() {        
+    // log(N/df(t)) as according to the Axiomatic paper (SIGIR '05)
+    float[] defineIDF() {        
         float[] idfs = new float[this.vec.length];
         int numDocs = reader.numDocs();
         for (int i = 0; i < idfs.length; i++) {
             Term t = new Term(TrecDocRetriever.FIELD_ANALYZED_CONTENT, this.vec[i].term);
             try {
                 int docFreq = reader.docFreq(t);            
-                idfs[i] = numDocs/(float)docFreq;
+                idfs[i] = (float)Math.log(numDocs/(float)docFreq);
             }
             catch (Exception ex) { ex.printStackTrace(); }
         }
@@ -160,69 +164,53 @@ public class DoclistReranker {
     Query query;
     TopDocs topDocs;
     DocVector qvec;
-    File workDir;
+    CubicBezierTF docTermFreqFunc;
     
-    final static String PackageName = "simfuns";
-    final static String DocReWtMethodName = "rewtDoc";
-    final static String QryReWtMethodName = "rewtQry";
-    
-    public DoclistReranker(File workDir, IndexReader reader, Query query, TopDocs topDocs) {        
-        this.workDir = workDir;        
+    public DoclistReranker(IndexReader reader,
+                            CubicBezierTF dtfFunc,
+                            Query query, TopDocs topDocs) {        
         this.reader = reader;
         this.query = query;
         this.topDocs = topDocs;
+        this.docTermFreqFunc = dtfFunc;
         qvec = new DocVector(reader, query);
     }
     
-    Class<?> getReWtClass(File workDirF, String className) throws Exception {
-        URL[] cp = {workDirF.toURI().toURL()};
-        URLClassLoader urlcl = new URLClassLoader(cp);
-        Class<?> clazz = urlcl.loadClass(PackageName + "." + className);
-        return clazz;
-    }
-    
-    Object getRewtObj(Class<?> clazz) throws Exception {
-        Object rewtObj = null;
-        Constructor ctor = clazz.getConstructor();
-        rewtObj = ctor.newInstance();
-        return rewtObj;
-    }
-    
-    DocVector getReWeightedVec(DocVector vec, Class<?> rewtClass, Object rewtObject, String methodName) throws Exception {
+    private DocVector getReWeightedVec(DocVector vec, CubicBezierTF tfFunc) throws Exception {
         DocVector rewtVec;        
-        float[] tfs = vec.getTfs();
-        float[] idfs = vec.getIdfs();                
-        float[] rewts = reweight(rewtClass, rewtObject, methodName, tfs, idfs);        
+        float[] tfs = vec.defineTF(tfFunc);
+        float[] idfs = vec.defineIDF();                
+        float[] rewts = reweight(tfs, idfs);        
         rewtVec = new DocVector(vec, rewts);
         return rewtVec;        
     }
 
-    float[] reweight(Class<?> rewtClass, Object rewtObj, String methodName,
-                    float[] tfs, float[] idfs) throws Exception {
-        float[] rewts = (float[])(rewtClass
-            .getDeclaredMethod(methodName, float[].class, float[].class)
-            .invoke(rewtObj, tfs, idfs));
-        return rewts;
+    // tf times idf for the time being...
+    // Explore more general ways of combining these... by 3D Beziers...
+    float[] reweight(float[] tfs, float[] idfs) throws Exception {
+        float[] tfIdfCombination = new float[tfs.length];
+        for (int i=0; i < tfs.length; i++) {
+            tfIdfCombination[i] = tfs[i] * idfs[i];
+        }
+        return tfIdfCombination;
     }    
     
-    public TopDocs rerank(String clsName) throws Exception {
+    public TopDocs rerank() throws Exception {
         TopDocs reranked = null;
         ScoreDoc[] newScoreDocs = new ScoreDoc[topDocs.scoreDocs.length];
     
-        Class<?> rewtClass = getReWtClass(workDir, clsName);
-        Object rewtObj = getRewtObj(rewtClass);
-        
-        // Re-weight the document and the query vectors
-        DocVector wtqvec = getReWeightedVec(this.qvec, rewtClass, rewtObj, QryReWtMethodName);
-        
         try {
             int i = 0;
             for (ScoreDoc sd : topDocs.scoreDocs) {
                 int docid = sd.doc;
+                
+                // Reweight doc term vector
                 DocVector dvec = new DocVector(reader, docid);
-                dvec = getReWeightedVec(dvec, rewtClass, rewtObj, DocReWtMethodName);
-                newScoreDocs[i++] = new ScoreDoc(docid, dvec.cosineSim(wtqvec));
+                dvec = getReWeightedVec(dvec, docTermFreqFunc);
+                
+                newScoreDocs[i++] = new ScoreDoc(docid, dvec.cosineSim(qvec));
             }
+            
             // sort by similarity scores
             Arrays.sort(newScoreDocs, new ScoreDocComparator());
             

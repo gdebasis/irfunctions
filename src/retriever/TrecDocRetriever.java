@@ -31,6 +31,7 @@ import org.apache.lucene.search.similarities.*;
 import org.apache.lucene.store.*;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.Version;
+import simfunctions.CubicBezierTF;
 import trec.TRECQuery;
 import trec.TRECQueryParser;
 
@@ -74,8 +75,8 @@ public class TrecDocRetriever {
     String runName;
     int numWanted;
     int trecCode;
+    Evaluator evaluator;
     
-    static final int NUMDOCS_TO_REPORT_FOR_CUSTOM_SIM = 20;
     static final public String FIELD_ID = "id";
     static final public String FIELD_ANALYZED_CONTENT = "words";  // Standard analyzer w/o stopwords.    
     
@@ -124,8 +125,10 @@ public class TrecDocRetriever {
         runName = prop.getProperty("retrieve.runname", "noname");
         numWanted = Integer.parseInt(prop.getProperty("retrieve.num_wanted", "1000"));
         trecCode = Integer.parseInt(prop.getProperty("trec.code", "6"));
+        
+        evaluator = new Evaluator(this.prop, reader);
     }
-
+    
     public List<TRECQuery> constructQueries(int trecCode) throws Exception {
         String key = "trec." + trecCode;
         List<TRECQuery> queries;
@@ -154,26 +157,35 @@ public class TrecDocRetriever {
         return buff.toString();
     }
     
+    // Batch retrieve with a particular setting of the tf function.
+    // Note that there is one for the document and one for the query.
     // trecCode is either 6, 7 or 8
-    public void batchRetrieveTREC(int trecCode) throws Exception {
+    public float batchRetrieveTREC(CubicBezierTF dtfFunc) throws Exception {
         List<TRECQuery> queries = constructQueries(trecCode);
-        String resultsFile = prop.getProperty("res." + trecCode + ".file");        
-        FileWriter fw = new FileWriter(resultsFile);
+        float map = 0f;
         
         for (TRECQuery query : queries) {
             TopScoreDocCollector collector = TopScoreDocCollector.create(1000, true);
             Query luceneQuery = buildQuery(query.title);
             searcher.search(luceneQuery, collector);
             
-            saveRetrievedTuples(fw, query, collector.topDocs());
+            // Re-rank based on the custom tf functions for doc and qry
+            TopDocs initialList = collector.topDocs();
+            DoclistReranker reranker = new DoclistReranker(reader,
+                    dtfFunc, luceneQuery, initialList);
+            TopDocs rerankedDocs = reranker.rerank();
+        
+            map += evaluator.computeAP(query.id, rerankedDocs);
         }        
         
-        fw.close();        
-        reader.close();
+        // Evaluate
+        // TODO: Write code here to evaluate and keep track of the
+        // function settings which yields the highest MAP till now.
+        return map;
+    }
+
+    void exploreAndEvalFunctionSpace() {
         
-        if (Boolean.parseBoolean(prop.getProperty("eval"))) {
-            evaluate();
-        }
     }
     
     private TopDocs randomize(TopDocs topDocs) {
@@ -184,8 +196,9 @@ public class TrecDocRetriever {
         Arrays.sort(rerankedScoreDocs, new ScoreDocComparator_DocId());
         return new TopDocs(topDocs.scoreDocs.length, rerankedScoreDocs, topDocs.getMaxScore());
     }
-    
-    public TopDocs retrieveWithCustomReranker(String query, String clsName) throws Exception {
+
+    /*
+    public TopDocs retrieveWithCustomReranker(String query) throws Exception {
         
         DoclistReranker reranker;        
         searcher.setSimilarity(new BM25Similarity());
@@ -193,19 +206,20 @@ public class TrecDocRetriever {
         // We retrieve 2000 documents so as to give the reranker a chance
         // to retrieve docs beyond 1000 (the standard for TREC)
         TopScoreDocCollector collector = TopScoreDocCollector.create(
-                NUMDOCS_TO_REPORT_FOR_CUSTOM_SIM, true);
+                numWanted<<1, true);
         Query luceneQuery = buildQuery(query);
 
         searcher.search(luceneQuery, collector);
         TopDocs initialList = collector.topDocs();
         
         TopDocs randomizedList = randomize(initialList);
-        reranker = new DoclistReranker(workDirF, reader, luceneQuery, randomizedList);
-        TopDocs rerankedDocs = reranker.rerank(clsName);
+        reranker = new DoclistReranker(reader, luceneQuery, randomizedList);
+        TopDocs rerankedDocs = reranker.rerank();
 
         return rerankedDocs;
     }
-
+    */
+    
     String analyze(String query) throws Exception {
         StringBuffer buff = new StringBuffer();
         TokenStream stream = analyzer.tokenStream("dummy", new StringReader(query));
@@ -298,13 +312,6 @@ public class TrecDocRetriever {
         fw.write(buff.toString());        
     }
     
-    public void evaluate() throws Exception {
-        Evaluator evaluator = new Evaluator(this.prop);
-        evaluator.load();
-        evaluator.fillRelInfo();
-        System.out.println(evaluator.computeAll());        
-    }
-    
     public static void main(String[] args) {
         if (args.length < 1) {
             args = new String[1];
@@ -312,7 +319,10 @@ public class TrecDocRetriever {
         }
         try {
             TrecDocRetriever searcher = new TrecDocRetriever(args[0]);
-            searcher.batchRetrieveTREC(searcher.getTrecCode());
+            CubicBezierTF tfFunc = new CubicBezierTF(.06f, .23f, .58f, .81f, 1.0f);
+            float map = searcher.batchRetrieveTREC(tfFunc);
+            System.out.println("MAP (" + tfFunc + ") :" + map);
+            
         }
         catch (Exception ex) {
             ex.printStackTrace();
