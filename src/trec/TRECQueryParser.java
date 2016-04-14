@@ -109,8 +109,10 @@ public class TRECQueryParser extends DefaultHandler {
                 query.desc = buff.toString();
             else if (qName.equalsIgnoreCase("narr"))
                 query.narr = buff.toString();
-            else if (qName.equalsIgnoreCase("num"))
+            else if (qName.equalsIgnoreCase("num")) {
                 query.id = buff.toString();
+                query.id = query.id.trim();
+            }
             else if (qName.equalsIgnoreCase("top"))
                 query.luceneQuery = constructLuceneQueryObj(query);            
         }
