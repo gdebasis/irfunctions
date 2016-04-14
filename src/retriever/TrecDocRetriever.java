@@ -70,7 +70,6 @@ public class TrecDocRetriever {
     IndexSearcher searcher;    
     Analyzer analyzer;
     Properties prop;
-    File workDirF;
     int numDocsInCollection;
     String runName;
     int numWanted;
@@ -111,7 +110,6 @@ public class TrecDocRetriever {
         prop.load(new FileReader(propFile));
         
         String indexDir = prop.getProperty("index");
-        workDirF = new File(prop.getProperty("workdir"));
         
         reader = DirectoryReader.open(FSDirectory.open(new File(indexDir)));
         searcher = new IndexSearcher(reader);
@@ -161,10 +159,13 @@ public class TrecDocRetriever {
     // Note that there is one for the document and one for the query.
     // trecCode is either 6, 7 or 8
     public float batchRetrieveTREC(CubicBezierTF dtfFunc) throws Exception {
+        System.out.println("Batch retrieving for TREC " + trecCode);
+        
         List<TRECQuery> queries = constructQueries(trecCode);
         float map = 0f;
         
         for (TRECQuery query : queries) {
+            System.out.println("Retrieving for query: " + query);
             TopScoreDocCollector collector = TopScoreDocCollector.create(1000, true);
             Query luceneQuery = buildQuery(query.title);
             searcher.search(luceneQuery, collector);
