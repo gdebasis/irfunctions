@@ -173,7 +173,8 @@ public class Evaluator {
     
     public Evaluator(Properties prop, IndexReader reader) throws Exception {
         this.reader = reader;
-        String qrelsFile = prop.getProperty("qrels.file");        
+        String trecCode = prop.getProperty("trec.code", "6");
+        String qrelsFile = prop.getProperty("trec." + trecCode + ".qrels.file");        
         relRcds = new AllRelRcds(qrelsFile);
         relRcds.load();
     }
