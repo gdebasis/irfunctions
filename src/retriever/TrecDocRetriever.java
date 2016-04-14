@@ -15,7 +15,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Properties;
 import org.apache.lucene.analysis.Analyzer;
@@ -162,7 +161,8 @@ public class TrecDocRetriever {
         System.out.println("Batch retrieving for TREC " + trecCode);
         
         List<TRECQuery> queries = constructQueries(trecCode);
-        float map = 0f;
+        float rerankedMap = 0f;
+        float baselineMap = 0f;
         
         for (TRECQuery query : queries) {
             System.out.println("Retrieving for query: " + query);
@@ -172,17 +172,22 @@ public class TrecDocRetriever {
             
             // Re-rank based on the custom tf functions for doc and qry
             TopDocs initialList = collector.topDocs();
+            baselineMap += evaluator.computeAP(query.id, initialList);
+            
             DoclistReranker reranker = new DoclistReranker(reader,
                     dtfFunc, luceneQuery, initialList);
             TopDocs rerankedDocs = reranker.rerank();
         
-            map += evaluator.computeAP(query.id, rerankedDocs);
+            rerankedMap += evaluator.computeAP(query.id, rerankedDocs);
         }        
+        
+        float numQueries = (float)queries.size();
+        System.out.println("BLMAP: " + baselineMap/numQueries + ", reranked MAP: " + rerankedMap/numQueries);
         
         // Evaluate
         // TODO: Write code here to evaluate and keep track of the
         // function settings which yields the highest MAP till now.
-        return map;
+        return rerankedMap;
     }
 
     void exploreAndEvalFunctionSpace() {

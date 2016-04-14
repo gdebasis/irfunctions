@@ -115,7 +115,6 @@ class RetrievedResults implements Comparable<RetrievedResults> {
     String qid;
     List<ResultTuple> rtuples;
     int numRelRet;
-    float avgP;    
     IndexReader reader;
     
     public RetrievedResults(IndexReader reader, String qid, TopDocs topDocs) throws Exception {
@@ -155,7 +154,6 @@ class RetrievedResults implements Comparable<RetrievedResults> {
         }
         numRelRet = numRelSeen;
         prec = numRel==0? 0 : prec/(float)numRel;
-        this.avgP = prec;
         
         return prec;        
     }
