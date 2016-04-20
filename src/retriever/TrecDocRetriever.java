@@ -26,11 +26,13 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.*;
 import org.apache.lucene.search.*;
-import org.apache.lucene.search.similarities.*;
+import org.apache.lucene.search.similarities.BM25Similarity;
+import org.apache.lucene.search.similarities.Similarity;
 import org.apache.lucene.store.*;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.Version;
 import simfunctions.CubicBezierTF;
+import simfunctions.GeneralizedTfIdfSimilarity;
 import trec.TRECQuery;
 import trec.TRECQueryParser;
 
@@ -160,40 +162,41 @@ public class TrecDocRetriever {
     public float batchRetrieveTREC(CubicBezierTF dtfFunc) throws Exception {
         System.out.println("Batch retrieving for TREC " + trecCode);
         
+        Similarity sim = new GeneralizedTfIdfSimilarity(dtfFunc);
+        searcher.setSimilarity(sim);
+        
         List<TRECQuery> queries = constructQueries(trecCode);
-        float rerankedMap = 0f;
-        float baselineMap = 0f;
+        float map = 0f;
         
         for (TRECQuery query : queries) {
-            System.out.println("Retrieving for query: " + query);
+            System.out.println("Retrieving for query " + query.id + ": " + query);
             TopScoreDocCollector collector = TopScoreDocCollector.create(1000, true);
             Query luceneQuery = buildQuery(query.title);
             searcher.search(luceneQuery, collector);
             
-            // Re-rank based on the custom tf functions for doc and qry
             TopDocs initialList = collector.topDocs();
-            baselineMap += evaluator.computeAP(query.id, initialList);
-            
+            map += evaluator.computeAP(query.id, initialList);
+
+            /*
+            // Re-rank based on the custom tf functions for doc and qry
             DoclistReranker reranker = new DoclistReranker(reader,
                     dtfFunc, luceneQuery, initialList);
             TopDocs rerankedDocs = reranker.rerank();
-        
-            rerankedMap += evaluator.computeAP(query.id, rerankedDocs);
+
+            map += evaluator.computeAP(query.id, rerankedDocs);
+            */
         }        
         
         float numQueries = (float)queries.size();
-        System.out.println("BLMAP: " + baselineMap/numQueries + ", reranked MAP: " + rerankedMap/numQueries);
+        map /= numQueries;
+        System.out.println("MAP " + dtfFunc.toString() + ": " + map);
         
         // Evaluate
         // TODO: Write code here to evaluate and keep track of the
         // function settings which yields the highest MAP till now.
-        return rerankedMap;
+        return map;
     }
 
-    void exploreAndEvalFunctionSpace() {
-        
-    }
-    
     private TopDocs randomize(TopDocs topDocs) {
         // Randomize a given ranked list
         // Simply sorting by the docids will be good enough to randomize
@@ -326,9 +329,7 @@ public class TrecDocRetriever {
         try {
             TrecDocRetriever searcher = new TrecDocRetriever(args[0]);
             CubicBezierTF tfFunc = new CubicBezierTF(.06f, .23f, .58f, .81f, 1.0f);
-            float map = searcher.batchRetrieveTREC(tfFunc);
-            System.out.println("MAP (" + tfFunc + ") :" + map);
-            
+            searcher.batchRetrieveTREC(tfFunc);
         }
         catch (Exception ex) {
             ex.printStackTrace();
