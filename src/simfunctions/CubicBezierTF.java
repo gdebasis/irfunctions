@@ -39,6 +39,9 @@ class TwoDPoint {
 
 public class CubicBezierTF {
 
+    static final float MAX_FREQ = 20f;  // Max frequency of a word
+    static final float EPSILON = 0.0001f;
+    
     // start is always (0, 0)
     TwoDPoint end; // end is (1, endY)
     TwoDPoint a, b;
@@ -90,8 +93,10 @@ public class CubicBezierTF {
     }
     
     // Get the function value, i.e. f(x) given a x value.
-    public float getTFScore(float x) {
-        final float EPSILON = 0.0000001f;
+    public float getTFScore(float absX) {
+        assert(absX <= MAX_FREQ);
+        
+        float x = absX/MAX_FREQ;
         float start = 0, end = 1, t;
         TwoDPoint mid = null;
         // Find the value of t for which x(t) \approx xPrime 

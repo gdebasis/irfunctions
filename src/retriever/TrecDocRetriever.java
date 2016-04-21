@@ -27,6 +27,8 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.*;
 import org.apache.lucene.search.*;
 import org.apache.lucene.search.similarities.BM25Similarity;
+import org.apache.lucene.search.similarities.LMDirichletSimilarity;
+import org.apache.lucene.search.similarities.LMJelinekMercerSimilarity;
 import org.apache.lucene.search.similarities.Similarity;
 import org.apache.lucene.store.*;
 import org.apache.lucene.util.BytesRef;
@@ -327,8 +329,9 @@ public class TrecDocRetriever {
             args[0] = "init.properties";
         }
         try {
+            BM25Similarity sim;
             TrecDocRetriever searcher = new TrecDocRetriever(args[0]);
-            CubicBezierTF tfFunc = new CubicBezierTF(.06f, .23f, .58f, .81f, 1.0f);
+            CubicBezierTF tfFunc = new CubicBezierTF(.06f, .23f, .4f, .5f, .8f);
             searcher.batchRetrieveTREC(tfFunc);
         }
         catch (Exception ex) {
