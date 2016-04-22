@@ -34,6 +34,7 @@ import org.apache.lucene.store.*;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.Version;
 import simfunctions.CubicBezierTF;
+import simfunctions.FactoryCubicBezierTF;
 import simfunctions.GeneralizedTfIdfSimilarity;
 import trec.TRECQuery;
 import trec.TRECQueryParser;
@@ -129,6 +130,9 @@ public class TrecDocRetriever {
         
         evaluator = new Evaluator(this.prop, reader);
     }
+
+    public Properties getProperties() { return prop; }
+    public IndexSearcher getSearcher() { return searcher; }
     
     public List<TRECQuery> constructQueries(int trecCode) throws Exception {
         String key = "trec." + trecCode;
@@ -161,44 +165,6 @@ public class TrecDocRetriever {
     // Batch retrieve with a particular setting of the tf function.
     // Note that there is one for the document and one for the query.
     // trecCode is either 6, 7 or 8
-    public float batchRetrieveTREC(CubicBezierTF dtfFunc) throws Exception {
-        System.out.println("Batch retrieving for TREC " + trecCode);
-        
-        Similarity sim = new GeneralizedTfIdfSimilarity(dtfFunc);
-        searcher.setSimilarity(sim);
-        
-        List<TRECQuery> queries = constructQueries(trecCode);
-        float map = 0f;
-        
-        for (TRECQuery query : queries) {
-            System.out.println("Retrieving for query " + query.id + ": " + query);
-            TopScoreDocCollector collector = TopScoreDocCollector.create(1000, true);
-            Query luceneQuery = buildQuery(query.title);
-            searcher.search(luceneQuery, collector);
-            
-            TopDocs initialList = collector.topDocs();
-            map += evaluator.computeAP(query.id, initialList);
-
-            /*
-            // Re-rank based on the custom tf functions for doc and qry
-            DoclistReranker reranker = new DoclistReranker(reader,
-                    dtfFunc, luceneQuery, initialList);
-            TopDocs rerankedDocs = reranker.rerank();
-
-            map += evaluator.computeAP(query.id, rerankedDocs);
-            */
-        }        
-        
-        float numQueries = (float)queries.size();
-        map /= numQueries;
-        System.out.println("MAP " + dtfFunc.toString() + ": " + map);
-        
-        // Evaluate
-        // TODO: Write code here to evaluate and keep track of the
-        // function settings which yields the highest MAP till now.
-        return map;
-    }
-
     private TopDocs randomize(TopDocs topDocs) {
         // Randomize a given ranked list
         // Simply sorting by the docids will be good enough to randomize
@@ -323,16 +289,57 @@ public class TrecDocRetriever {
         fw.write(buff.toString());        
     }
     
+    public float batchRetrieveTREC(CubicBezierTF dtfFunc) throws Exception {
+        System.out.println("Batch retrieving for TREC " + this.getTrecCode());
+                
+        Similarity sim = new GeneralizedTfIdfSimilarity(dtfFunc);
+        searcher.setSimilarity(sim);
+        
+        List<TRECQuery> queries = constructQueries(trecCode);
+        float map = 0f;
+        
+        for (TRECQuery query : queries) {
+            System.out.println("Retrieving for query " + query.id + ": " + query);
+            TopScoreDocCollector collector = TopScoreDocCollector.create(1000, true);
+            Query luceneQuery = buildQuery(query.title);
+            searcher.search(luceneQuery, collector);
+            
+            TopDocs initialList = collector.topDocs();
+            map += evaluator.computeAP(query.id, initialList);
+
+            /*
+            // Re-rank based on the custom tf functions for doc and qry
+            DoclistReranker reranker = new DoclistReranker(reader,
+                    dtfFunc, luceneQuery, initialList);
+            TopDocs rerankedDocs = reranker.rerank();
+
+            map += evaluator.computeAP(query.id, rerankedDocs);
+            */
+        }        
+        
+        float numQueries = (float)queries.size();
+        map /= numQueries;
+        System.out.println("MAP " + dtfFunc.toString() + ": " + map);
+        
+        // Evaluate
+        // TODO: Write code here to evaluate and keep track of the
+        // function settings which yields the highest MAP till now.
+        dtfFunc.setMAP(map);
+        return map;
+    }
+
     public static void main(String[] args) {
         if (args.length < 1) {
             args = new String[1];
             args[0] = "init.properties";
         }
         try {
-            BM25Similarity sim;
             TrecDocRetriever searcher = new TrecDocRetriever(args[0]);
-            CubicBezierTF tfFunc = new CubicBezierTF(.06f, .23f, .4f, .5f, .8f);
-            searcher.batchRetrieveTREC(tfFunc);
+            FactoryCubicBezierTF bezierFactory = new FactoryCubicBezierTF(searcher);
+            bezierFactory.exploreFunctionSpace();
+            bezierFactory.showTopFunctions();
+            //searcher.batchRetrieveTREC(new CubicBezierTF(.06f, .23f, .4f, .5f, .8f));
+            //searcher.batchRetrieveTREC(new CubicBezierTF(.1f, .2f, .4f, .5f, .9f));
         }
         catch (Exception ex) {
             ex.printStackTrace();

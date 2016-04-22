@@ -5,6 +5,8 @@
  */
 package simfunctions;
 
+import java.util.Comparator;
+
 /**
  * For representing TF, we need two dimensional Bezier functions of the form
  * (x(t), y(t)), where x is normalized TF and y=f(x) is the value of the TF function
@@ -23,7 +25,8 @@ class TwoDPoint {
     
     public String toString() {
         StringBuffer buff = new StringBuffer();
-        buff.append("(").append(x).append(", ").append(y).append(")");
+        buff.append("(").append(String.format("%.4f", x)).append(", ")
+                .append(String.format("%.4f", y)).append(")");
         return buff.toString();
     }
     
@@ -37,7 +40,7 @@ class TwoDPoint {
     }
 }
 
-public class CubicBezierTF {
+public class CubicBezierTF implements Comparable<CubicBezierTF> {
 
     static final float MAX_FREQ = 20f;  // Max frequency of a word
     static final float EPSILON = 0.0001f;
@@ -45,12 +48,15 @@ public class CubicBezierTF {
     // start is always (0, 0)
     TwoDPoint end; // end is (1, endY)
     TwoDPoint a, b;
+    float map;
     
     public CubicBezierTF(float ax, float ay, float bx, float by, float endY) {
         a = new TwoDPoint(ax, ay);
         b = new TwoDPoint(bx, by);
         end = new TwoDPoint(1, endY);
     }
+    
+    public void setMAP(float map) { this.map = map; }
     
     // Check the constraints
     boolean isValid() {
@@ -131,8 +137,10 @@ public class CubicBezierTF {
             .append(" ")
             .append(this.b)
             .append(" ")
-            .append(this.end.y)
-            .append("]");
+            .append(String.format("%.4f", this.end.y))
+            .append("]")
+            .append(" MAP = ")
+            .append(map);
         return buff.toString();
     }
     
@@ -144,5 +152,10 @@ public class CubicBezierTF {
         System.out.println("f(0.5) = " + tf.getTFScore(0.5f));
         System.out.println("f(0.75) = " + tf.getTFScore(0.75f));
         System.out.println("f(1) = " + tf.getTFScore(1.0f));
+    }
+
+    @Override
+    public int compareTo(CubicBezierTF that) {
+        return Float.compare(map, that.map);
     }
 }
